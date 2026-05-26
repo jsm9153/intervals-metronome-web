@@ -37,7 +37,7 @@
 
   /* Dial */
   .dialwrap{flex:1; position:relative; min-height:0;}
-  .dial{position:absolute; inset:0;}
+  .dial{position:absolute; inset:0; touch-action:none;}
   .ringline{position:absolute; border-radius:50%; border:1px solid var(--ring); transform:translate(-50%,-50%); pointer-events:none;}
   .ringline.outer{opacity:.7;} .ringline.inner{opacity:.5;}
   .dot{position:absolute; transform:translate(-50%,-50%); border-radius:50%; cursor:pointer;
@@ -370,6 +370,10 @@ function visualLoop(){
 /* ---------- Rendering ---------- */
 const el = id => document.getElementById(id);
 let dotEls={beat:[],sub:[]};
+let preview=null;           // {target:'beat'|'sub', count} while dragging a ring
+let suppressClick=false;    // set briefly after a drag so it doesn't also fire a tap
+const effBeats = ()=> (preview&&preview.target==='beat') ? preview.count : state.beats;
+const effSubs  = ()=> (preview&&preview.target==='sub')  ? preview.count : state.subdivisions;
 
 function applyTheme(){
   const t = themeByName(state.theme);
@@ -394,19 +398,20 @@ function layoutDial(){
   // clear existing dots
   document.querySelectorAll(".dot").forEach(d=>d.remove());
   dotEls={beat:[],sub:[]};
+  const nb=effBeats(), ns=effSubs();
   // beat dots on outer ring
-  for(let i=0;i<state.beats;i++){
+  for(let i=0;i<nb;i++){
     const d=document.createElement("div"); d.className="dot"; d.style.width="40px"; d.style.height="40px";
-    const p=point(cx,cy,outerR,i,state.beats); d.style.left=p.x+"px"; d.style.top=p.y+"px";
-    d.onclick=()=>cycleAccent("beat",i);
+    const p=point(cx,cy,outerR,i,nb); d.style.left=p.x+"px"; d.style.top=p.y+"px";
+    d.onclick=()=>{ if(suppressClick) return; cycleAccent("beat",i); };
     el("dial").appendChild(d); dotEls.beat.push(d);
   }
   // sub dots on inner ring (only if subdividing)
-  if(state.subdivisions>1){
-    for(let j=0;j<state.subdivisions;j++){
+  if(ns>1){
+    for(let j=0;j<ns;j++){
       const d=document.createElement("div"); d.className="dot"; d.style.width="28px"; d.style.height="28px";
-      const p=point(cx,cy,innerR,j,state.subdivisions); d.style.left=p.x+"px"; d.style.top=p.y+"px";
-      d.onclick=()=>cycleAccent("sub",j);
+      const p=point(cx,cy,innerR,j,ns); d.style.left=p.x+"px"; d.style.top=p.y+"px";
+      d.onclick=()=>{ if(suppressClick) return; cycleAccent("sub",j); };
       el("dial").appendChild(d); dotEls.sub.push(d);
     }
   }
@@ -466,9 +471,64 @@ function cycleAccent(kind,i){
   paintDots(); saveState();
 }
 
-el("transport").onclick=toggle;
+el("transport").onclick=()=>{ if(suppressClick) return; toggle(); };
 el("brandMark").innerHTML=triskeleSVG();
 el("transportMark").innerHTML=triskeleSVG();
+
+/* Rotary drag on the rings to change beat / subdivision counts (matches iOS):
+   drag the outer ring band = beats (1–16), inner band = subdivisions (1–8),
+   30° per step, previews while dragging and commits on release. */
+(function(){
+  const dial=el("dial");
+  let active=false, decided=false, target=null, startCount=0, lastAngle=0, accum=0, moved=false;
+  let startX=0, startY=0, startDist=0, cx=0, cy=0, innerR=0, outerR=0;
+  function geom(){
+    const W=dial.clientWidth, H=dial.clientHeight; cx=W/2; cy=H/2;
+    const side=Math.min(W,H); outerR=Math.min(side/2-34,300); innerR=outerR*0.66;
+  }
+  function rel(e){ const r=dial.getBoundingClientRect(); return {x:e.clientX-r.left-cx, y:e.clientY-r.top-cy}; }
+  dial.addEventListener("pointerdown",e=>{
+    geom(); const p=rel(e);
+    active=true; decided=false; target=null; accum=0; moved=false;
+    startX=e.clientX; startY=e.clientY; startDist=Math.hypot(p.x,p.y); lastAngle=Math.atan2(p.y,p.x);
+    try{ dial.setPointerCapture(e.pointerId); }catch(_){}
+  });
+  dial.addEventListener("pointermove",e=>{
+    if(!active) return;
+    if(!moved){ if(Math.hypot(e.clientX-startX,e.clientY-startY)<8) return; moved=true; }
+    const p=rel(e); const angle=Math.atan2(p.y,p.x);
+    if(!decided){
+      decided=true;
+      if(startDist < innerR*0.6) target=null;                 // center → transport, ignore
+      else if(startDist < (innerR+outerR)/2) target="sub";    // inner band
+      else target="beat";                                     // outer band
+      startCount = target==="beat" ? state.beats : (target==="sub" ? state.subdivisions : 0);
+      lastAngle=angle; return;
+    }
+    if(!target) return;
+    let d=angle-lastAngle; if(d>Math.PI) d-=2*Math.PI; if(d<-Math.PI) d+=2*Math.PI;
+    accum+=d; lastAngle=angle;
+    const steps=Math.trunc(accum/(Math.PI/6));               // 30° per step
+    const range = target==="beat" ? [1,16] : [1,8];
+    preview={ target, count: Math.min(Math.max(startCount+steps,range[0]),range[1]) };
+    layoutDial();
+  });
+  function end(e){
+    if(!active) return; active=false;
+    try{ dial.releasePointerCapture(e.pointerId); }catch(_){}
+    if(preview && target){
+      const n=preview.count;
+      if(target==="beat" && n!==state.beats){ state.beats=n; state.beatAccents=resize(state.beatAccents,n); }
+      else if(target==="sub" && n!==state.subdivisions){ state.subdivisions=n; state.subAccents=resize(state.subAccents,Math.max(n,1)); }
+    }
+    preview=null;
+    if(moved){ suppressClick=true; setTimeout(()=>{ suppressClick=false; }, 60); }
+    renderReadouts(); layoutDial(); saveState(); if(moved) restartIfPlaying();
+    decided=false; target=null; accum=0; moved=false;
+  }
+  dial.addEventListener("pointerup",end);
+  dial.addEventListener("pointercancel",end);
+})();
 
 /* BPM editor (click to type; drag up/down to adjust) */
 el("bpmBtn").onclick=()=>{
