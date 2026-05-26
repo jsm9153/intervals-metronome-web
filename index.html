@@ -56,6 +56,10 @@
   body[data-style="glow"] .dot.lit{box-shadow:0 0 18px var(--active);}
   body[data-style="neon"] .dot.accent{background:transparent;border-width:2.5px;box-shadow:0 0 10px var(--accent),inset 0 0 6px var(--accent);}
   body[data-style="neon"] .dot.lit{background:transparent;border-color:var(--active);box-shadow:0 0 16px var(--active),inset 0 0 8px var(--active);}
+  /* Ghost dot that follows the pointer while dragging the ring to add/remove beats */
+  .ghost{position:absolute; transform:translate(-50%,-50%); border-radius:50%; pointer-events:none; z-index:6;
+         background:color-mix(in srgb, var(--accent) 28%, transparent); border:2px dashed var(--accent);
+         box-shadow:0 0 14px var(--accent); opacity:0; transition:opacity .15s ease;}
 
   /* Center transport */
   .transport{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:84px; height:84px;
@@ -548,6 +552,7 @@ el("transportMark").innerHTML=triskeleSVG();
    30° per step, previews while dragging and commits on release. */
 (function(){
   const dial=el("dial");
+  const ghost=document.createElement("div"); ghost.className="ghost"; dial.appendChild(ghost);
   let active=false, decided=false, target=null, startCount=0, lastAngle=0, accum=0, moved=false, pointerId=null;
   let startX=0, startY=0, startDist=0, cx=0, cy=0, innerR=0, outerR=0;
   function geom(){
@@ -555,6 +560,15 @@ el("transportMark").innerHTML=triskeleSVG();
     const side=Math.min(W,H); outerR=Math.min(side/2-34,300); innerR=outerR*0.66;
   }
   function rel(e){ const r=dial.getBoundingClientRect(); return {x:e.clientX-r.left-cx, y:e.clientY-r.top-cy}; }
+  // Show the ghost dot riding the dragged ring at the pointer's angle.
+  function showGhost(angle){
+    if(!target) return;
+    const gR = target==="beat" ? outerR : innerR, gs = target==="beat" ? 40 : 28;
+    ghost.style.width = ghost.style.height = gs+"px";
+    ghost.style.left = (cx + gR*Math.cos(angle))+"px";
+    ghost.style.top  = (cy + gR*Math.sin(angle))+"px";
+    ghost.style.opacity = "0.95";
+  }
   dial.addEventListener("pointerdown",e=>{
     geom(); const p=rel(e); const dist=Math.hypot(p.x,p.y);
     // Center region is the play/stop button — don't start a drag or capture the
@@ -578,7 +592,7 @@ el("transportMark").innerHTML=triskeleSVG();
       else if(startDist < (innerR+outerR)/2) target="sub";    // inner band
       else target="beat";                                     // outer band
       startCount = target==="beat" ? state.beats : (target==="sub" ? state.subdivisions : 0);
-      lastAngle=angle; return;
+      lastAngle=angle; showGhost(angle); return;
     }
     if(!target) return;
     let d=angle-lastAngle; if(d>Math.PI) d-=2*Math.PI; if(d<-Math.PI) d+=2*Math.PI;
@@ -586,6 +600,7 @@ el("transportMark").innerHTML=triskeleSVG();
     const steps=Math.trunc(accum/(Math.PI/6));               // 30° per step
     const range = target==="beat" ? [1,16] : [1,8];
     preview={ target, count: Math.min(Math.max(startCount+steps,range[0]),range[1]) };
+    showGhost(angle);
     layoutDial();
   });
   function end(){
@@ -603,6 +618,7 @@ el("transportMark").innerHTML=triskeleSVG();
       suppressClick=true; setTimeout(()=>{ suppressClick=false; }, 60);
       renderReadouts(); layoutDial(); saveState(); restartIfPlaying();
     }
+    ghost.style.opacity="0";
     decided=false; target=null; accum=0; moved=false; pointerId=null;
   }
   dial.addEventListener("pointerup",end);
