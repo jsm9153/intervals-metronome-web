@@ -31,9 +31,8 @@
   .bpm .num{font-size:46px; font-weight:800; line-height:1; color:var(--primary);}
   .bpm .cap{font-size:11px; letter-spacing:.14em; color:var(--secondary); text-transform:uppercase; margin-top:2px;}
   .tsig{text-align:right; cursor:pointer;}
-  .tsig .cap{font-size:11px; letter-spacing:.06em; color:var(--secondary);}
-  .tsig .val{font-size:26px; font-weight:800; color:var(--accent);}
-  .tsig .sub{font-size:11px; color:var(--secondary);}
+  .tsig .val{font-size:46px; font-weight:800; line-height:1; color:var(--primary);}
+  .tsig .cap{font-size:11px; letter-spacing:.14em; color:var(--secondary); text-transform:uppercase; margin-top:2px;}
 
   /* Dial */
   .dialwrap{flex:1; position:relative; min-height:0;}
@@ -129,9 +128,8 @@
       <div class="cap">BPM</div>
     </div>
     <div class="tsig corner" id="tsigBtn">
-      <div class="cap">Time Signature</div>
       <div class="val" id="tsigVal">4/4</div>
-      <div class="sub" id="tsigSub">Subdivision 2</div>
+      <div class="cap">Time Signature</div>
     </div>
     <button class="iconbtn corner" id="templatesBtn">▦<span class="lbl">Templates</span></button>
     <button class="iconbtn corner" id="themeBtn">◑<span class="lbl">Theme</span></button>
@@ -506,7 +504,6 @@ function paintLit(){
 function renderReadouts(){
   el("bpmNum").textContent=Math.round(state.tempo);
   el("tsigVal").textContent=`${state.beats}/${state.noteValue}`;
-  el("tsigSub").textContent=`Subdivision ${state.subdivisions}`;
 }
 function renderVoices(){
   const roles=["Beat","Subdivision","Quarter Note"];
