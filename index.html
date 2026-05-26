@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#140B04">
+<title>Intervals Metronome</title>
+<style>
+  :root{
+    --bg:#140B04; --surface:#2A1A0C; --primary:#F4C674; --secondary:#B07C3C;
+    --accent:#F2740C; --ring:#7A4A18; --active:#FFD24A; --stop:#E23A2E;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:var(--bg); color:var(--primary);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    overflow:hidden; user-select:none; -webkit-user-select:none;
+    transition:background .4s ease;
+  }
+  #app{position:fixed; inset:0; display:flex; flex-direction:column;}
+
+  /* Top bar */
+  .topbar{display:flex; align-items:flex-start; justify-content:space-between; padding:16px 20px 0;}
+  .brand{display:flex; align-items:center; gap:8px; font-weight:700; font-size:20px;}
+  .brand .mark{width:26px; height:26px;}
+  .topbtn{background:none;border:none;color:var(--accent);font:inherit;font-size:16px;cursor:pointer;padding:4px;}
+
+  .readouts{display:flex; align-items:flex-start; justify-content:space-between; padding:6px 22px 0;}
+  .bpm{cursor:pointer;}
+  .bpm .num{font-size:46px; font-weight:800; line-height:1; color:var(--primary);}
+  .bpm .cap{font-size:11px; letter-spacing:.14em; color:var(--secondary); text-transform:uppercase; margin-top:2px;}
+  .tsig{text-align:right; cursor:pointer;}
+  .tsig .cap{font-size:11px; letter-spacing:.06em; color:var(--secondary);}
+  .tsig .val{font-size:26px; font-weight:800; color:var(--accent);}
+  .tsig .sub{font-size:11px; color:var(--secondary);}
+
+  /* Dial */
+  .dialwrap{flex:1; position:relative; min-height:0;}
+  .dial{position:absolute; inset:0;}
+  .ringline{position:absolute; border-radius:50%; border:1px solid var(--ring); transform:translate(-50%,-50%); pointer-events:none;}
+  .ringline.outer{opacity:.7;} .ringline.inner{opacity:.5;}
+  .dot{position:absolute; transform:translate(-50%,-50%); border-radius:50%; cursor:pointer;
+       display:flex; align-items:center; justify-content:center; transition:transform .08s ease, background .12s, border-color .12s, box-shadow .12s;}
+  .dot.main{border:2px solid color-mix(in srgb, var(--primary) 70%, transparent); background:transparent;}
+  .dot.accent{background:var(--accent); border:2px solid var(--accent);}
+  .dot.silent{border:2px dashed color-mix(in srgb, var(--secondary) 55%, transparent); background:transparent;}
+  .dot.lit{background:var(--active); border-color:var(--active);}
+  /* glow / neon variants */
+  body[data-style="glow"] .dot.accent{box-shadow:0 0 12px var(--accent);}
+  body[data-style="glow"] .dot.lit{box-shadow:0 0 18px var(--active);}
+  body[data-style="neon"] .dot.accent{background:transparent;border-width:2.5px;box-shadow:0 0 10px var(--accent),inset 0 0 6px var(--accent);}
+  body[data-style="neon"] .dot.lit{background:transparent;border-color:var(--active);box-shadow:0 0 16px var(--active),inset 0 0 8px var(--active);}
+
+  /* Center transport */
+  .transport{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:84px; height:84px;
+    border-radius:50%; border:2.5px solid var(--accent); background:color-mix(in srgb, var(--bg) 55%, transparent);
+    display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:5;}
+  .transport.playing{border-color:var(--stop);}
+  body[data-style="glow"] .transport.playing, body[data-style="neon"] .transport.playing{box-shadow:0 0 14px var(--stop);}
+  .transport .mark{position:absolute; width:72px; height:72px; opacity:.9;}
+  .transport .glyph{position:relative; z-index:2; color:var(--accent); filter:drop-shadow(0 1px 1px rgba(0,0,0,.6));}
+  .transport.playing .glyph{color:var(--stop);}
+
+  /* Bottom */
+  .footer{padding:0 20px 14px;}
+  .footrow{display:flex; align-items:center; justify-content:space-between; padding:6px 4px 12px;}
+  .iconbtn{display:flex; flex-direction:column; align-items:center; gap:3px; background:none; border:none; color:var(--accent); cursor:pointer; font:inherit;}
+  .iconbtn .lbl{font-size:11px; color:var(--secondary);}
+  .voice{display:grid; grid-template-columns:96px 1fr 24px 120px; align-items:center; gap:10px; padding:5px 4px;}
+  .voice .role{font-size:13px; font-weight:600; color:var(--primary);}
+  .voice .snd{font-size:14px; color:var(--accent); cursor:pointer; background:none;border:none;text-align:left;font:inherit;padding:0;}
+  .voice .mute{cursor:pointer; color:var(--secondary); background:none;border:none;display:flex;align-items:center;justify-content:center;}
+  .voice input[type=range]{width:100%; accent-color:var(--accent);}
+
+  /* Modals */
+  .scrim{position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:50; padding:20px;}
+  .scrim.open{display:flex;}
+  .sheet{background:var(--surface); color:var(--primary); border-radius:18px; padding:18px; width:min(420px,92vw); max-height:84vh; overflow:auto; box-shadow:0 20px 60px rgba(0,0,0,.5);}
+  .sheet h3{margin:0 0 14px; font-size:18px;}
+  .stepper{display:flex; align-items:center; justify-content:space-between; padding:10px 0;}
+  .stepper .ctrls{display:flex; align-items:center; gap:14px;}
+  .stepper button{width:38px;height:38px;border-radius:50%;border:1px solid var(--ring);background:transparent;color:var(--primary);font-size:22px;cursor:pointer;}
+  .stepper .v{font-size:20px;font-weight:700;min-width:42px;text-align:center;}
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:10px;}
+  .opt{padding:12px;border-radius:12px;border:1px solid var(--ring);background:transparent;color:var(--primary);cursor:pointer;font:inherit;text-align:center;}
+  .opt.sel{border-color:var(--accent); color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset;}
+  .swatch{height:44px;border-radius:10px;margin-bottom:6px;border:1px solid rgba(255,255,255,.15);}
+  .rowbtn{display:flex;align-items:center;justify-content:space-between;width:100%;padding:12px;border-radius:12px;border:1px solid var(--ring);background:transparent;color:var(--primary);cursor:pointer;font:inherit;margin-bottom:8px;}
+  .rowbtn .del{color:var(--stop);}
+  .closebar{display:flex;justify-content:flex-end;gap:10px;margin-top:14px;}
+  .btn{padding:10px 16px;border-radius:10px;border:1px solid var(--ring);background:transparent;color:var(--primary);cursor:pointer;font:inherit;}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#1a0d02;font-weight:700;}
+  .field{width:100%;padding:12px;border-radius:10px;border:1px solid var(--ring);background:var(--bg);color:var(--primary);font:inherit;font-size:18px;margin-bottom:10px;}
+  .hint{font-size:12px;color:var(--secondary);margin-top:-4px;margin-bottom:10px;}
+</style>
+</head>
+<body data-style="glow">
+<div id="app">
+  <div class="topbar">
+    <div class="brand"><span class="mark" id="brandMark"></span><span>Intervals</span></div>
+    <button class="topbtn" id="defaultsBtn">Defaults</button>
+  </div>
+
+  <div class="readouts">
+    <div class="bpm" id="bpmBtn">
+      <div class="num" id="bpmNum">90</div>
+      <div class="cap">BPM</div>
+    </div>
+    <div class="tsig" id="tsigBtn">
+      <div class="cap">Time Signature</div>
+      <div class="val" id="tsigVal">4/4</div>
+      <div class="sub" id="tsigSub">Subdivision 2</div>
+    </div>
+  </div>
+
+  <div class="dialwrap">
+    <div class="dial" id="dial">
+      <div class="ringline outer" id="ringOuter"></div>
+      <div class="ringline inner" id="ringInner"></div>
+      <!-- dots injected here -->
+      <div class="transport" id="transport">
+        <span class="mark" id="transportMark"></span>
+        <span class="glyph" id="transportGlyph"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="footrow">
+      <button class="iconbtn" id="templatesBtn">▦<span class="lbl">Templates</span></button>
+      <button class="iconbtn" id="themeBtn">◑<span class="lbl">Theme</span></button>
+    </div>
+    <div id="voices"></div>
+  </div>
+</div>
+
+<!-- Modal root -->
+<div class="scrim" id="scrim"><div class="sheet" id="sheet"></div></div>
+
+<script>
+"use strict";
+
+/* ---------- Triskele SVG (tints with currentColor) ---------- */
+function triskeleSVG(){
+  // three filled comma/spiral arms rotated 120° — a Celtic triskele, tints via currentColor
+  const arm = 'M50 50 C 44 45 40 34 47 27 C 55 19 69 22 72 33 C 74 42 67 50 58 48 C 53 47 52 49 50 50 Z';
+  return `<svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true">
+    <g fill="currentColor">
+      <path d="${arm}"/>
+      <path d="${arm}" transform="rotate(120 50 50)"/>
+      <path d="${arm}" transform="rotate(240 50 50)"/>
+    </g>
+  </svg>`;
+}
+function playGlyph(){return `<svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;}
+function stopGlyph(){return `<svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>`;}
+
+/* ---------- Themes (ported from the iOS app) ---------- */
+const THEMES = [
+  {name:"Triskele",      dark:true,  bg:"#140B04",surface:"#2A1A0C",primary:"#F4C674",secondary:"#B07C3C",accent:"#F2740C",ring:"#7A4A18",active:"#FFD24A",stop:"#E23A2E",style:"glow"},
+  {name:"Nebula",        dark:true,  bg:"#100726",surface:"#231641",primary:"#D9C7F5",secondary:"#8A6FB0",accent:"#B14CFF",ring:"#432A66",active:"#3DE7E0",stop:"#FF4D6D",style:"neon"},
+  {name:"Bioluminescence",dark:true, bg:"#041C18",surface:"#0A3A33",primary:"#9FE8D6",secondary:"#4E8F82",accent:"#12C9A0",ring:"#165349",active:"#6BFFB0",stop:"#FF6B5C",style:"glow"},
+  {name:"Outrun",        dark:true,  bg:"#150733",surface:"#2A1052",primary:"#F7C7E8",secondary:"#9A6FA8",accent:"#FF2D95",ring:"#4A1A6E",active:"#21E6FF",stop:"#FF5470",style:"neon"},
+  {name:"Magma",         dark:true,  bg:"#1A0603",surface:"#3A1208",primary:"#F6B98C",secondary:"#B06A4A",accent:"#E23A1E",ring:"#6E2612",active:"#FFA033",stop:"#FF5536",style:"glow"},
+  {name:"Aurora",        dark:true,  bg:"#05101A",surface:"#0C2230",primary:"#BFEFD8",secondary:"#5F8C84",accent:"#2BD4A0",ring:"#17424A",active:"#8A6BFF",stop:"#FF6B6B",style:"glow"},
+  {name:"Voltage",       dark:true,  bg:"#070E20",surface:"#101E3E",primary:"#C2DBFF",secondary:"#5E7CA8",accent:"#2E6BFF",ring:"#1E335C",active:"#49E0FF",stop:"#FF5470",style:"neon"},
+  {name:"Venom",         dark:true,  bg:"#0A1206",surface:"#17260C",primary:"#CDE89A",secondary:"#7A8C4E",accent:"#8FE000",ring:"#36460F",active:"#CBFF3A",stop:"#FF4D3D",style:"neon"},
+  {name:"Parchment",     dark:false, bg:"#F1E7CE",surface:"#FFFBF1",primary:"#3A2A14",secondary:"#8A6B45",accent:"#C4561E",ring:"#D2BC93",active:"#1F7A6B",stop:"#B22222",style:"standard"},
+  {name:"Blueprint",     dark:false, bg:"#D7E3F0",surface:"#F0F5FB",primary:"#102A47",secondary:"#5C7794",accent:"#1E5FBF",ring:"#A6BFD8",active:"#E07A1E",stop:"#C0392B",style:"standard"},
+  {name:"Meadow",        dark:false, bg:"#E2EECF",surface:"#F3F8EA",primary:"#223317",secondary:"#647A53",accent:"#4A9E2F",ring:"#BCD2A0",active:"#D9882B",stop:"#C0392B",style:"standard"},
+  {name:"Daylight",      dark:false, bg:"#FFFFFF",surface:"#F2F2F7",primary:"#000000",secondary:"#3A3A3C",accent:"#0A52E0",ring:"#6E6E73",active:"#FF6A00",stop:"#E5342B",style:"standard"},
+  {name:"Low Light",     dark:true,  bg:"#0B0B0E",surface:"#18171C",primary:"#B9AE9C",secondary:"#6E665B",accent:"#B5763A",ring:"#33302C",active:"#C8843A",stop:"#8C3A33",style:"standard"},
+];
+const themeByName = n => THEMES.find(t=>t.name===n) || THEMES[0];
+
+/* ---------- Sounds (synthesized approximations of the GM voices) ---------- */
+// type: 'bass' pitched & sustaining; others are percussion transients.
+const SOUNDS = [
+  {name:"Acoustic Bass", type:"bass", freq:82.41},   // E2
+  {name:"Fretless Bass", type:"bass", freq:82.41},
+  {name:"Contrabass",    type:"bass", freq:65.41},   // C2
+  {name:"Woodblock",     type:"wood", freq:1200},
+  {name:"Click",         type:"click",freq:2000},
+  {name:"Bell",          type:"bell", freq:660},
+  {name:"Claves",        type:"wood", freq:2500},
+  {name:"Cowbell",       type:"cowbell",freq:540},
+  {name:"Rim",           type:"rim",  freq:1700},
+];
+const soundByName = n => SOUNDS.find(s=>s.name===n) || SOUNDS[0];
+
+/* ---------- State ---------- */
+const DEFAULTS = {
+  tempo:90, beats:4, noteValue:4, subdivisions:2,
+  beatAccents:[0,0,0,0], subAccents:[0,0],
+  volumes:[1.0,0.0,0.0], muted:[false,false,false],
+  sounds:["Acoustic Bass","Woodblock","Click"],
+  theme:"Triskele",
+};
+let state = loadState();
+let templates = loadTemplates();
+let playing = false;
+
+function loadState(){
+  try{ const s = JSON.parse(localStorage.getItem("im_state")); if(s && s.tempo) return Object.assign(structuredClone(DEFAULTS), s); }catch(e){}
+  return structuredClone(DEFAULTS);
+}
+function saveState(){ localStorage.setItem("im_state", JSON.stringify(state)); }
+function loadTemplates(){ try{ return JSON.parse(localStorage.getItem("im_templates"))||[]; }catch(e){ return []; } }
+function saveTemplates(){ localStorage.setItem("im_templates", JSON.stringify(templates)); }
+
+function resize(arr,n){ const out=arr.slice(0,n); while(out.length<n) out.push(0); return out; }
+
+/* ---------- Audio engine: Web Audio + lookahead scheduler ---------- */
+let actx=null, master=null;
+const LOOKAHEAD=0.025, SCHEDULE_AHEAD=0.12;
+let schedTimer=null, startTime=0;
+// two independent tracks: beat/sub grid + steady-quarter grid
+let trk={ sub:{step:0,next:0}, q:{step:0,next:0} };
+let lit={beat:-1,sub:-1};
+let scheduledEvents=[]; // {t, beat, sub} for the visual playhead
+
+function ensureAudio(){
+  if(!actx){
+    actx = new (window.AudioContext||window.webkitAudioContext)();
+    master = actx.createGain(); master.gain.value=0.9; master.connect(actx.destination);
+  }
+  if(actx.state==="suspended") actx.resume();
+}
+
+// effective subdivision count (1 == none, matching the iOS app)
+function subCount(){ return state.subdivisions>1 ? state.subdivisions : 1; }
+function beatInterval(){ return (60/state.tempo) * (4/state.noteValue); }   // seconds per beat (main note)
+function quarterInterval(){ return 60/state.tempo; }
+
+function startEngine(){
+  ensureAudio();
+  startTime = actx.currentTime + 0.06;
+  trk.sub={step:0,next:startTime};
+  trk.q={step:0,next:startTime};
+  scheduledEvents=[]; lit={beat:-1,sub:-1};
+  if(schedTimer) clearInterval(schedTimer);
+  schedTimer = setInterval(schedule, LOOKAHEAD*1000);
+  schedule();
+}
+function stopEngine(){
+  if(schedTimer){ clearInterval(schedTimer); schedTimer=null; }
+  lit={beat:-1,sub:-1};
+}
+
+function schedule(){
+  if(!actx) return;
+  const horizon = actx.currentTime + SCHEDULE_AHEAD;
+  const sc = subCount();
+  // beat / subdivision track
+  while(trk.sub.next < horizon){
+    const s = trk.sub.step;
+    const beatIdx = Math.floor(s/sc) % state.beats;
+    const subIdx = s % sc;
+    const t = trk.sub.next;
+    // voice 0 — beat (main pulse) fires on the beat boundary
+    if(subIdx===0){
+      const a = state.beatAccents[beatIdx] ?? 0;
+      if(a!==2) playVoice(0, t, a===1);
+    }
+    // voice 1 — subdivisions (only when subdividing)
+    if(sc>1){
+      const a = state.subAccents[subIdx] ?? 0;
+      if(a!==2) playVoice(1, t, a===1);
+    }
+    scheduledEvents.push({t, beat:beatIdx, sub:subIdx});
+    trk.sub.step++;
+    trk.sub.next += beatInterval()/sc;
+  }
+  // steady quarter-note reference track
+  while(trk.q.next < horizon){
+    playVoice(2, trk.q.next, false);
+    trk.q.step++;
+    trk.q.next += quarterInterval();
+  }
+}
+
+/* ---- per-voice synthesis ---- */
+function playVoice(vi, time, accent){
+  const vol = state.muted[vi] ? 0 : state.volumes[vi];
+  if(vol<=0) return;
+  const snd = soundByName(state.sounds[vi]);
+  const gain = vol * (accent?1.0:0.62);
+  synth(snd, time, gain, accent);
+}
+
+function synth(snd, t, gain, accent){
+  const g = actx.createGain(); g.connect(master);
+  const f = snd.freq * (accent?1.06:1);
+  switch(snd.type){
+    case "bass": {
+      const o1=actx.createOscillator(), o2=actx.createOscillator();
+      o1.type="triangle"; o2.type="sine";
+      o1.frequency.value=f; o2.frequency.value=f*2;
+      const o2g=actx.createGain(); o2g.gain.value=0.3; o2.connect(o2g);
+      o1.connect(g); o2g.connect(g);
+      const dur=Math.min(beatInterval()*0.9, 0.5);
+      g.gain.setValueAtTime(0.0001,t);
+      g.gain.exponentialRampToValueAtTime(gain*0.9,t+0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+      o1.start(t);o2.start(t);o1.stop(t+dur);o2.stop(t+dur);
+      break;
+    }
+    case "bell": {
+      [1,2.76,5.4].forEach((m,i)=>{
+        const o=actx.createOscillator(); o.type="sine"; o.frequency.value=f*m;
+        const og=actx.createGain(); og.gain.value=[0.6,0.3,0.15][i];
+        o.connect(og); og.connect(g); o.start(t); o.stop(t+1.0);
+      });
+      g.gain.setValueAtTime(gain,t); g.gain.exponentialRampToValueAtTime(0.0001,t+1.0);
+      break;
+    }
+    case "cowbell": {
+      [f, f*1.48].forEach(fr=>{
+        const o=actx.createOscillator(); o.type="square"; o.frequency.value=fr; o.connect(g); o.start(t); o.stop(t+0.3);
+      });
+      g.gain.setValueAtTime(gain*0.5,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.3);
+      break;
+    }
+    case "wood": case "click": case "rim": {
+      // short noise burst + tone for a crisp transient
+      const dur = snd.type==="bell"?0.2:0.05;
+      const o=actx.createOscillator(); o.type= snd.type==="rim"?"square":"triangle"; o.frequency.value=f;
+      o.connect(g); o.start(t); o.stop(t+dur);
+      // noise component
+      const nb=actx.createBuffer(1, actx.sampleRate*0.03, actx.sampleRate);
+      const d=nb.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1);
+      const ns=actx.createBufferSource(); ns.buffer=nb;
+      const nf=actx.createBiquadFilter(); nf.type="bandpass"; nf.frequency.value=f; nf.Q.value=snd.type==="rim"?1.5:4;
+      const ng=actx.createGain(); ng.gain.value=gain*(snd.type==="rim"?0.9:0.5);
+      ns.connect(nf); nf.connect(ng); ng.connect(master);
+      ng.gain.setValueAtTime(ng.gain.value,t); ng.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+      ns.start(t); ns.stop(t+0.03);
+      g.gain.setValueAtTime(gain*0.8,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+      break;
+    }
+    default: {
+      const o=actx.createOscillator(); o.frequency.value=f; o.connect(g); o.start(t); o.stop(t+0.05);
+      g.gain.setValueAtTime(gain,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.05);
+    }
+  }
+}
+
+/* ---------- Transport ---------- */
+function play(){ ensureAudio(); playing=true; startEngine(); render(); requestAnimationFrame(visualLoop); }
+function stop(){ playing=false; stopEngine(); render(); }
+function toggle(){ playing?stop():play(); }
+// restart cleanly at beat 1 when the pattern structure changes mid-play (matches iOS)
+function restartIfPlaying(){ if(playing) startEngine(); }
+
+/* ---------- Visual playhead ---------- */
+function visualLoop(){
+  if(!playing) return;
+  const now = actx.currentTime;
+  // advance through scheduled events that have sounded
+  let changed=false;
+  while(scheduledEvents.length && scheduledEvents[0].t<=now){
+    const e=scheduledEvents.shift();
+    if(e.beat!==lit.beat || e.sub!==lit.sub){ lit={beat:e.beat,sub:e.sub}; changed=true; }
+  }
+  if(changed) paintLit();
+  requestAnimationFrame(visualLoop);
+}
+
+/* ---------- Rendering ---------- */
+const el = id => document.getElementById(id);
+let dotEls={beat:[],sub:[]};
+
+function applyTheme(){
+  const t = themeByName(state.theme);
+  const r = document.documentElement.style;
+  r.setProperty("--bg",t.bg); r.setProperty("--surface",t.surface); r.setProperty("--primary",t.primary);
+  r.setProperty("--secondary",t.secondary); r.setProperty("--accent",t.accent); r.setProperty("--ring",t.ring);
+  r.setProperty("--active",t.active); r.setProperty("--stop",t.stop);
+  document.body.dataset.style=t.style;
+  document.querySelector('meta[name=theme-color]').setAttribute("content",t.bg);
+}
+
+function layoutDial(){
+  const dial=el("dial");
+  const W=dial.clientWidth, H=dial.clientHeight;
+  const cx=W/2, cy=H/2;
+  const side=Math.min(W,H);
+  const outerR=Math.min(side/2-34, 300);
+  const innerR=outerR*0.66;
+  el("ringOuter").style.cssText=`width:${outerR*2}px;height:${outerR*2}px;left:${cx}px;top:${cy}px;`+el("ringOuter").style.cssText.replace(/(width|height|left|top):[^;]*;?/g,'');
+  setRing(el("ringOuter"),outerR,cx,cy); setRing(el("ringInner"),innerR,cx,cy);
+
+  // clear existing dots
+  document.querySelectorAll(".dot").forEach(d=>d.remove());
+  dotEls={beat:[],sub:[]};
+  // beat dots on outer ring
+  for(let i=0;i<state.beats;i++){
+    const d=document.createElement("div"); d.className="dot"; d.style.width="40px"; d.style.height="40px";
+    const p=point(cx,cy,outerR,i,state.beats); d.style.left=p.x+"px"; d.style.top=p.y+"px";
+    d.onclick=()=>cycleAccent("beat",i);
+    el("dial").appendChild(d); dotEls.beat.push(d);
+  }
+  // sub dots on inner ring (only if subdividing)
+  if(state.subdivisions>1){
+    for(let j=0;j<state.subdivisions;j++){
+      const d=document.createElement("div"); d.className="dot"; d.style.width="28px"; d.style.height="28px";
+      const p=point(cx,cy,innerR,j,state.subdivisions); d.style.left=p.x+"px"; d.style.top=p.y+"px";
+      d.onclick=()=>cycleAccent("sub",j);
+      el("dial").appendChild(d); dotEls.sub.push(d);
+    }
+  }
+  paintDots(); paintLit();
+}
+function setRing(node,R,cx,cy){ node.style.width=(R*2)+"px"; node.style.height=(R*2)+"px"; node.style.left=cx+"px"; node.style.top=cy+"px"; }
+function point(cx,cy,R,i,n){ const a=-Math.PI/2 + i*2*Math.PI/n; return {x:cx+R*Math.cos(a), y:cy+R*Math.sin(a)}; }
+
+function dotClass(val){ return val===1?"accent":val===2?"silent":"main"; }
+function paintDots(){
+  dotEls.beat.forEach((d,i)=>{ d.className="dot "+dotClass(state.beatAccents[i]??0); d.style.width="40px";d.style.height="40px"; });
+  dotEls.sub.forEach((d,j)=>{ d.className="dot "+dotClass(state.subAccents[j]??0); d.style.width="28px";d.style.height="28px"; });
+  paintLit();
+}
+function paintLit(){
+  dotEls.beat.forEach((d,i)=>{ d.classList.toggle("lit", playing && lit.beat===i); d.style.transform = (playing&&lit.beat===i)?"translate(-50%,-50%) scale(1.35)":"translate(-50%,-50%)"; });
+  dotEls.sub.forEach((d,j)=>{ d.classList.toggle("lit", playing && lit.sub===j && state.subdivisions>1); d.style.transform = (playing&&lit.sub===j)?"translate(-50%,-50%) scale(1.3)":"translate(-50%,-50%)"; });
+}
+
+function renderReadouts(){
+  el("bpmNum").textContent=Math.round(state.tempo);
+  el("tsigVal").textContent=`${state.beats}/${state.noteValue}`;
+  el("tsigSub").textContent=`Subdivision ${state.subdivisions}`;
+}
+function renderVoices(){
+  const roles=["Beat","Subdivision","Quarter Note"];
+  const box=el("voices"); box.innerHTML="";
+  roles.forEach((role,vi)=>{
+    const row=document.createElement("div"); row.className="voice";
+    row.innerHTML=`<span class="role">${role}</span>
+      <button class="snd">${state.sounds[vi]}</button>
+      <button class="mute" title="Mute">${state.muted[vi]?spk(true):spk(false)}</button>
+      <input type="range" min="0" max="1" step="0.01" value="${state.volumes[vi]}">`;
+    row.querySelector(".snd").onclick=()=>openSoundPicker(vi);
+    row.querySelector(".mute").onclick=()=>{ state.muted[vi]=!state.muted[vi]; renderVoices(); saveState(); };
+    const range=row.querySelector("input");
+    range.oninput=e=>{ state.volumes[vi]=parseFloat(e.target.value); state.muted[vi]=false; };
+    range.onchange=()=>{ renderVoices(); saveState(); };
+    box.appendChild(row);
+  });
+}
+function spk(muted){ return muted?'🔇':'🔊'; }
+
+function render(){
+  applyTheme();
+  renderReadouts();
+  renderVoices();
+  layoutDial();
+  el("transportGlyph").innerHTML = playing?stopGlyph():playGlyph();
+  el("transport").classList.toggle("playing",playing);
+}
+
+/* ---------- Interactions ---------- */
+function cycleAccent(kind,i){
+  if(kind==="beat"){ state.beatAccents[i]=((state.beatAccents[i]??0)+1)%3; }
+  else { state.subAccents[i]=((state.subAccents[i]??0)+1)%3; }
+  paintDots(); saveState();
+}
+
+el("transport").onclick=toggle;
+el("brandMark").innerHTML=triskeleSVG();
+el("transportMark").innerHTML=triskeleSVG();
+
+/* BPM editor (click to type; drag up/down to adjust) */
+el("bpmBtn").onclick=()=>{
+  openSheet(`<h3>Tempo</h3>
+    <input class="field" id="bpmField" type="number" min="30" max="300" value="${Math.round(state.tempo)}">
+    <div class="hint">30–300 BPM</div>
+    <div class="closebar"><button class="btn" data-close>Cancel</button><button class="btn primary" id="bpmOk">Set</button></div>`);
+  const fld=el("bpmField"); fld.focus(); fld.select();
+  el("bpmOk").onclick=()=>{ const v=Math.max(30,Math.min(300,parseFloat(fld.value)||state.tempo)); state.tempo=v; closeSheet(); renderReadouts(); saveState(); restartIfPlaying(); };
+};
+// drag vertically on BPM to nudge
+(function(){
+  let startY=0,startV=0,drag=false;
+  const node=el("bpmBtn");
+  node.addEventListener("pointerdown",e=>{drag=true;startY=e.clientY;startV=state.tempo;node.setPointerCapture(e.pointerId);});
+  node.addEventListener("pointermove",e=>{ if(!drag)return; const dv=Math.round((startY-e.clientY)/3); const v=Math.max(30,Math.min(300,startV+dv)); if(v!==state.tempo){ state.tempo=v; renderReadouts(); } });
+  node.addEventListener("pointerup",e=>{ if(drag){drag=false; saveState(); restartIfPlaying();} });
+})();
+
+/* Time signature + subdivisions */
+el("tsigBtn").onclick=()=>{
+  openSheet(`<h3>Time Signature</h3>
+    ${stepperHTML("Beats","beats",state.beats)}
+    ${stepperHTML("Note Value","note",state.noteValue)}
+    ${stepperHTML("Subdivisions","subs",state.subdivisions)}
+    <div class="closebar"><button class="btn primary" data-close>Done</button></div>`);
+  bindStepper("beats", ()=>state.beats, v=>{ state.beats=clamp(v,1,16); state.beatAccents=resize(state.beatAccents,state.beats); }, 1,16);
+  bindStepper("note", ()=>state.noteValue, v=>{ state.noteValue=clamp(v,1,32); }, 1,32);
+  bindStepper("subs", ()=>state.subdivisions, v=>{ state.subdivisions=clamp(v,1,8); state.subAccents=resize(state.subAccents,Math.max(state.subdivisions,1)); }, 1,8);
+};
+function stepperHTML(label,key,val){
+  return `<div class="stepper"><span>${label}</span><div class="ctrls">
+    <button data-step="${key}" data-d="-1">−</button><span class="v" id="v_${key}">${val}</span><button data-step="${key}" data-d="1">+</button>
+  </div></div>`;
+}
+function bindStepper(key,get,set,min,max){
+  document.querySelectorAll(`[data-step="${key}"]`).forEach(b=>{
+    b.onclick=()=>{ set(clamp(get()+parseInt(b.dataset.d),min,max)); el("v_"+key).textContent=get(); renderReadouts(); layoutDial(); saveState(); restartIfPlaying(); };
+  });
+}
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+
+/* Sound picker */
+function openSoundPicker(vi){
+  const opts=SOUNDS.map(s=>`<button class="opt ${s.name===state.sounds[vi]?'sel':''}" data-snd="${s.name}">${s.name}</button>`).join("");
+  openSheet(`<h3>${["Beat","Subdivision","Quarter Note"][vi]} Sound</h3><div class="grid">${opts}</div>
+    <div class="closebar"><button class="btn primary" data-close>Done</button></div>`);
+  document.querySelectorAll("[data-snd]").forEach(b=>b.onclick=()=>{ state.sounds[vi]=b.dataset.snd; renderVoices(); saveState(); restartIfPlaying(); closeSheet(); });
+}
+
+/* Theme picker */
+el("themeBtn").onclick=()=>{
+  const opts=THEMES.map(t=>`<button class="opt ${t.name===state.theme?'sel':''}" data-theme="${t.name}">
+     <div class="swatch" style="background:linear-gradient(135deg,${t.bg},${t.accent})"></div>${t.name}</button>`).join("");
+  openSheet(`<h3>Theme</h3><div class="grid">${opts}</div><div class="closebar"><button class="btn primary" data-close>Done</button></div>`);
+  document.querySelectorAll("[data-theme]").forEach(b=>b.onclick=()=>{ state.theme=b.dataset.theme; render(); saveState(); closeSheet(); });
+};
+
+/* Templates */
+el("templatesBtn").onclick=()=>{
+  const list = templates.length? templates.map((t,i)=>`<button class="rowbtn" data-load="${i}"><span>${t.name}</span><span class="del" data-del="${i}">✕</span></button>`).join("") : `<div class="hint">No saved templates yet.</div>`;
+  openSheet(`<h3>Templates</h3>${list}
+    <input class="field" id="tplName" placeholder="New template name">
+    <div class="closebar"><button class="btn" data-close>Close</button><button class="btn primary" id="tplSave">Save current</button></div>`);
+  el("tplSave").onclick=()=>{ const n=(el("tplName").value||("Template "+(templates.length+1))).trim(); templates.push(captureTemplate(n)); saveTemplates(); closeSheet(); };
+  document.querySelectorAll("[data-load]").forEach(b=>b.onclick=e=>{ if(e.target.dataset.del!==undefined) return; applyTemplate(templates[+b.dataset.load]); closeSheet(); });
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=e=>{ e.stopPropagation(); templates.splice(+b.dataset.del,1); saveTemplates(); el("templatesBtn").onclick(); });
+};
+function captureTemplate(name){ return {name, s:structuredClone({tempo:state.tempo,beats:state.beats,noteValue:state.noteValue,subdivisions:state.subdivisions,beatAccents:state.beatAccents,subAccents:state.subAccents,volumes:state.volumes,muted:state.muted,sounds:state.sounds,theme:state.theme})}; }
+function applyTemplate(t){ Object.assign(state,structuredClone(t.s)); render(); saveState(); restartIfPlaying(); }
+
+/* Defaults */
+el("defaultsBtn").onclick=()=>{ state=structuredClone(DEFAULTS); render(); saveState(); restartIfPlaying(); };
+
+/* ---------- Modal helpers ---------- */
+function openSheet(html){ el("sheet").innerHTML=html; el("scrim").classList.add("open");
+  el("sheet").querySelectorAll("[data-close]").forEach(b=>b.onclick=closeSheet);
+}
+function closeSheet(){ el("scrim").classList.remove("open"); }
+el("scrim").addEventListener("click",e=>{ if(e.target===el("scrim")) closeSheet(); });
+
+/* keyboard: space = play/stop */
+window.addEventListener("keydown",e=>{ if(e.code==="Space" && !/input|textarea/i.test(e.target.tagName)){ e.preventDefault(); toggle(); } });
+
+/* ---------- Boot ---------- */
+window.addEventListener("resize", ()=>layoutDial());
+render();
+</script>
+</body>
+</html>
