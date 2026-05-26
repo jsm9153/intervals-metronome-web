@@ -37,6 +37,9 @@
 
   /* Dial */
   .dialwrap{flex:1; position:relative; min-height:0;}
+  /* The 4 controls sit at the corners of the dial's bounding square (positioned in JS),
+     so on large screens they hug the dial instead of spreading to the screen edges. */
+  .corner{position:absolute; z-index:4; transition:left .25s ease, right .25s ease, top .25s ease, bottom .25s ease;}
   .dial{position:absolute; inset:0; touch-action:none;}
   .ringline{position:absolute; border-radius:50%; border:1px solid var(--ring); transform:translate(-50%,-50%); pointer-events:none;}
   .ringline.outer{opacity:.7;} .ringline.inner{opacity:.5;}
@@ -69,11 +72,13 @@
   .footrow{display:flex; align-items:center; justify-content:space-between; padding:6px 4px 12px;}
   .iconbtn{display:flex; flex-direction:column; align-items:center; gap:3px; background:none; border:none; color:var(--accent); cursor:pointer; font:inherit;}
   .iconbtn .lbl{font-size:11px; color:var(--secondary);}
-  .voice{display:grid; grid-template-columns:96px 1fr 24px 120px; align-items:center; gap:10px; padding:5px 4px;}
-  .voice .role{font-size:13px; font-weight:600; color:var(--primary);}
-  .voice .snd{font-size:14px; color:var(--accent); cursor:pointer; background:none;border:none;text-align:left;font:inherit;padding:0;}
-  .voice .mute{cursor:pointer; color:var(--secondary); background:none;border:none;display:flex;align-items:center;justify-content:center;}
-  .voice input[type=range]{width:100%; accent-color:var(--accent);}
+  /* One shared grid for all rows so the columns (label · sound · mute · slider) line up;
+     the whole block is right-aligned into the lower-right. */
+  #voices{display:grid; grid-template-columns:auto auto auto auto; gap:9px 10px; align-items:center; justify-content:end;}
+  .vrole{font-size:13px; font-weight:600; color:var(--primary); white-space:nowrap; text-align:right;}
+  .vsnd{font-size:14px; color:var(--accent); cursor:pointer; background:none;border:none; text-align:left; font:inherit; padding:0; white-space:nowrap;}
+  .vmute{cursor:pointer; color:var(--secondary); background:none;border:none; display:flex; align-items:center; justify-content:center; padding:0;}
+  #voices input[type=range]{width:104px; accent-color:var(--accent);}
 
   /* Modals */
   .scrim{position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:50; padding:20px;}
@@ -104,18 +109,6 @@
     <button class="topbtn" id="defaultsBtn">Defaults</button>
   </div>
 
-  <div class="readouts">
-    <div class="bpm" id="bpmBtn">
-      <div class="num" id="bpmNum">90</div>
-      <div class="cap">BPM</div>
-    </div>
-    <div class="tsig" id="tsigBtn">
-      <div class="cap">Time Signature</div>
-      <div class="val" id="tsigVal">4/4</div>
-      <div class="sub" id="tsigSub">Subdivision 2</div>
-    </div>
-  </div>
-
   <div class="dialwrap">
     <div class="dial" id="dial">
       <div class="ringline outer" id="ringOuter"></div>
@@ -126,13 +119,21 @@
         <span class="glyph" id="transportGlyph"></span>
       </div>
     </div>
+    <!-- corner controls: positioned at the corners of the dial's bounding square -->
+    <div class="bpm corner" id="bpmBtn">
+      <div class="num" id="bpmNum">90</div>
+      <div class="cap">BPM</div>
+    </div>
+    <div class="tsig corner" id="tsigBtn">
+      <div class="cap">Time Signature</div>
+      <div class="val" id="tsigVal">4/4</div>
+      <div class="sub" id="tsigSub">Subdivision 2</div>
+    </div>
+    <button class="iconbtn corner" id="templatesBtn">▦<span class="lbl">Templates</span></button>
+    <button class="iconbtn corner" id="themeBtn">◑<span class="lbl">Theme</span></button>
   </div>
 
   <div class="footer">
-    <div class="footrow">
-      <button class="iconbtn" id="templatesBtn">▦<span class="lbl">Templates</span></button>
-      <button class="iconbtn" id="themeBtn">◑<span class="lbl">Theme</span></button>
-    </div>
     <div id="voices"></div>
   </div>
 </div>
@@ -405,6 +406,7 @@ function layoutDial(){
   const innerR=outerR*0.66;
   el("ringOuter").style.cssText=`width:${outerR*2}px;height:${outerR*2}px;left:${cx}px;top:${cy}px;`+el("ringOuter").style.cssText.replace(/(width|height|left|top):[^;]*;?/g,'');
   setRing(el("ringOuter"),outerR,cx,cy); setRing(el("ringInner"),innerR,cx,cy);
+  placeCorners(cx, cy, outerR);
 
   // Diff the dots (add/remove/reposition) instead of rebuilding, so count changes
   // animate smoothly via CSS transitions rather than snapping.
@@ -414,6 +416,40 @@ function layoutDial(){
   paintDots(); paintLit();
 }
 function setRing(node,R,cx,cy){ node.style.width=(R*2)+"px"; node.style.height=(R*2)+"px"; node.style.left=cx+"px"; node.style.top=cy+"px"; }
+
+// Place the 4 controls at the corners of the square circumscribing the dial (radius R)
+// plus a small buffer. Insets are clamped so the controls never overflow the dial area
+// on short/narrow screens; on large screens the square is capped with the dial, so the
+// controls hug it instead of spreading to the screen edges.
+function placeCorners(cx, cy, R){
+  const buffer = 14, edge = 8, margin = 10;
+  const half = R + buffer, W = cx*2, H = cy*2;
+  const hInset = Math.max(edge, cx - half);   // horizontal inset (square-based, clamped)
+  const sqV    = Math.max(edge, cy - half);   // square vertical inset (used when clear of ring)
+  // Vertical inset for one item: if it sits over the ring horizontally, push it up/down
+  // until its inner edge clears the ring (so a tight square becomes a taller rectangle on
+  // narrow screens, keeping the wide Time Signature off the outer ring).
+  function vFor(id, right, bottom){
+    const r = el(id).getBoundingClientRect();
+    const iw = r.width || 120, ih = r.height || 40;
+    const x0 = right ? (W - hInset - iw) : hInset, x1 = x0 + iw;
+    const dmin = Math.abs(Math.max(x0, Math.min(cx, x1)) - cx);  // nearest item x to center
+    if(dmin >= R) return sqV;                                    // beside the dial — square corner
+    const dy = Math.sqrt(R*R - dmin*dmin);                       // ring offset at that x
+    const v = bottom ? (H - (cy + dy) - margin - ih) : (cy - dy - margin - ih);
+    return Math.max(4, Math.min(sqV, v));
+  }
+  const topV = Math.min(vFor("bpmBtn",false,false), vFor("tsigBtn",true,false));   // align the pair
+  const botV = Math.min(vFor("templatesBtn",false,true), vFor("themeBtn",true,true));
+  const set = (id, right, bottom, v) => {
+    const e = el(id);
+    e.style.left = e.style.right = e.style.top = e.style.bottom = "auto";
+    e.style[right ? "right" : "left"] = hInset + "px";
+    e.style[bottom ? "bottom" : "top"] = v + "px";
+  };
+  set("bpmBtn", false, false, topV);  set("tsigBtn", true, false, topV);
+  set("templatesBtn", false, true, botV);  set("themeBtn", true, true, botV);
+}
 function point(cx,cy,R,i,n){ const a=-Math.PI/2 + i*2*Math.PI/n; return {x:cx+R*Math.cos(a), y:cy+R*Math.sin(a)}; }
 
 // Reconcile the dot elements for a ring to `count`: glide existing dots to their new
@@ -471,18 +507,18 @@ function renderReadouts(){
 function renderVoices(){
   const roles=["Beat","Subdivision","Quarter Note"];
   const box=el("voices"); box.innerHTML="";
+  // Emit cells directly into the #voices grid so every row shares the same columns.
   roles.forEach((role,vi)=>{
-    const row=document.createElement("div"); row.className="voice";
-    row.innerHTML=`<span class="role">${role}</span>
-      <button class="snd">${state.sounds[vi]}</button>
-      <button class="mute" title="Mute">${state.muted[vi]?spk(true):spk(false)}</button>
-      <input type="range" min="0" max="1" step="0.01" value="${state.volumes[vi]}">`;
-    row.querySelector(".snd").onclick=()=>openSoundPicker(vi);
-    row.querySelector(".mute").onclick=()=>{ state.muted[vi]=!state.muted[vi]; renderVoices(); saveState(); };
-    const range=row.querySelector("input");
+    const label=document.createElement("span"); label.className="vrole"; label.textContent=role;
+    const snd=document.createElement("button"); snd.className="vsnd"; snd.textContent=state.sounds[vi];
+    snd.onclick=()=>openSoundPicker(vi);
+    const mute=document.createElement("button"); mute.className="vmute"; mute.title="Mute"; mute.textContent=spk(state.muted[vi]);
+    mute.onclick=()=>{ state.muted[vi]=!state.muted[vi]; renderVoices(); saveState(); };
+    const range=document.createElement("input");
+    range.type="range"; range.min="0"; range.max="1"; range.step="0.01"; range.value=state.volumes[vi];
     range.oninput=e=>{ state.volumes[vi]=parseFloat(e.target.value); state.muted[vi]=false; };
     range.onchange=()=>{ renderVoices(); saveState(); };
-    box.appendChild(row);
+    box.append(label, snd, mute, range);
   });
 }
 function spk(muted){ return muted?'🔇':'🔊'; }
@@ -520,9 +556,12 @@ el("transportMark").innerHTML=triskeleSVG();
   }
   function rel(e){ const r=dial.getBoundingClientRect(); return {x:e.clientX-r.left-cx, y:e.clientY-r.top-cy}; }
   dial.addEventListener("pointerdown",e=>{
-    geom(); const p=rel(e);
+    geom(); const p=rel(e); const dist=Math.hypot(p.x,p.y);
+    // Center region is the play/stop button — don't start a drag or capture the
+    // pointer there, so the transport's own tap works at any click speed.
+    if(dist < innerR*0.6 || (e.target.closest && e.target.closest("#transport"))) { active=false; return; }
     active=true; decided=false; target=null; accum=0; moved=false;
-    startX=e.clientX; startY=e.clientY; startDist=Math.hypot(p.x,p.y); lastAngle=Math.atan2(p.y,p.x);
+    startX=e.clientX; startY=e.clientY; startDist=dist; lastAngle=Math.atan2(p.y,p.x);
     try{ dial.setPointerCapture(e.pointerId); }catch(_){}
   });
   dial.addEventListener("pointermove",e=>{
