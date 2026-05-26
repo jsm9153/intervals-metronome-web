@@ -548,7 +548,7 @@ el("transportMark").innerHTML=triskeleSVG();
    30° per step, previews while dragging and commits on release. */
 (function(){
   const dial=el("dial");
-  let active=false, decided=false, target=null, startCount=0, lastAngle=0, accum=0, moved=false;
+  let active=false, decided=false, target=null, startCount=0, lastAngle=0, accum=0, moved=false, pointerId=null;
   let startX=0, startY=0, startDist=0, cx=0, cy=0, innerR=0, outerR=0;
   function geom(){
     const W=dial.clientWidth, H=dial.clientHeight; cx=W/2; cy=H/2;
@@ -560,13 +560,17 @@ el("transportMark").innerHTML=triskeleSVG();
     // Center region is the play/stop button — don't start a drag or capture the
     // pointer there, so the transport's own tap works at any click speed.
     if(dist < innerR*0.6 || (e.target.closest && e.target.closest("#transport"))) { active=false; return; }
-    active=true; decided=false; target=null; accum=0; moved=false;
+    active=true; decided=false; target=null; accum=0; moved=false; pointerId=e.pointerId;
     startX=e.clientX; startY=e.clientY; startDist=dist; lastAngle=Math.atan2(p.y,p.x);
-    try{ dial.setPointerCapture(e.pointerId); }catch(_){}
+    // Capture is deferred until an actual drag is detected (see pointermove), so a tap
+    // never steals the click from a dot or the play button — fixes "only works fast".
   });
   dial.addEventListener("pointermove",e=>{
     if(!active) return;
-    if(!moved){ if(Math.hypot(e.clientX-startX,e.clientY-startY)<8) return; moved=true; }
+    if(!moved){
+      if(Math.hypot(e.clientX-startX,e.clientY-startY)<10) return;   // still a tap
+      moved=true; try{ dial.setPointerCapture(pointerId); }catch(_){}  // now it's a drag
+    }
     const p=rel(e); const angle=Math.atan2(p.y,p.x);
     if(!decided){
       decided=true;
@@ -584,18 +588,22 @@ el("transportMark").innerHTML=triskeleSVG();
     preview={ target, count: Math.min(Math.max(startCount+steps,range[0]),range[1]) };
     layoutDial();
   });
-  function end(e){
+  function end(){
     if(!active) return; active=false;
-    try{ dial.releasePointerCapture(e.pointerId); }catch(_){}
-    if(preview && target){
-      const n=preview.count;
-      if(target==="beat" && n!==state.beats){ state.beats=n; state.beatAccents=resize(state.beatAccents,n); }
-      else if(target==="sub" && n!==state.subdivisions){ state.subdivisions=n; state.subAccents=resize(state.subAccents,Math.max(n,1)); }
+    try{ dial.releasePointerCapture(pointerId); }catch(_){}
+    // Only a real drag (moved) commits a count change and suppresses the follow-up click;
+    // a tap falls through to the dot's / button's own click handler.
+    if(moved){
+      if(preview && target){
+        const n=preview.count;
+        if(target==="beat" && n!==state.beats){ state.beats=n; state.beatAccents=resize(state.beatAccents,n); }
+        else if(target==="sub" && n!==state.subdivisions){ state.subdivisions=n; state.subAccents=resize(state.subAccents,Math.max(n,1)); }
+      }
+      preview=null;
+      suppressClick=true; setTimeout(()=>{ suppressClick=false; }, 60);
+      renderReadouts(); layoutDial(); saveState(); restartIfPlaying();
     }
-    preview=null;
-    if(moved){ suppressClick=true; setTimeout(()=>{ suppressClick=false; }, 60); }
-    renderReadouts(); layoutDial(); saveState(); if(moved) restartIfPlaying();
-    decided=false; target=null; accum=0; moved=false;
+    decided=false; target=null; accum=0; moved=false; pointerId=null;
   }
   dial.addEventListener("pointerup",end);
   dial.addEventListener("pointercancel",end);
